@@ -7,7 +7,7 @@ type Props = {
   onChange: (ev: ChangeEvent<HTMLInputElement>) => void;
 };
 
-export const ButtonFile: FC<Props> = (props) => {
+export const FileButton: FC<Props> = (props) => {
   const { disabled = false, inputRef, onClick, onChange } = props;
 
   return (

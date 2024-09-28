@@ -1,20 +1,21 @@
-import { ButtonFile } from "@/components/ButtonFile";
+import { FileButton } from "@/components/ButtonFile";
 import { InputLink } from "@/components/InputLink";
 import { ProgressCard } from "@/components/ProcessCard";
 import { Dropzone } from "@/components/Dropzone";
 import { PreviewImage } from "@/components/PreviewImage";
 import type { DropzoneOptions } from "react-dropzone";
-import { ToastContainer } from "react-toastify";
 import type { NextPage } from "next";
 import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { toast } from "react-toastify";
 import axios from "axios";
+import "react-toastify/dist/ReactToastify.css";
 
-type ImageRes = {
+type ImageResponse = {
   public_id: string;
   secure_url: string;
 };
+
 const imageTypeRegex = /image\/(png|gif|jpg|jpeg)/gm;
 const DROPZONE_OPTIONS: DropzoneOptions = {
   accept: {
@@ -23,11 +24,6 @@ const DROPZONE_OPTIONS: DropzoneOptions = {
   noClick: true,
   maxFiles: 1,
   maxSize: 11000000,
-};
-
-type ImageResponse = {
-  public_id: string;
-  secure_url: string;
 };
 
 type UploadFileProps = {
@@ -56,14 +52,13 @@ export const uploadFile = async ({
 };
 
 const HomePage: NextPage = () => {
-  const [formatImage, setFormatImage] = useState<FormData | null>(null);
-  const [image, setImage] = useState<ImageRes | null>(null);
-  const [isFetching, setIsFetching] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [progressStatus, setProgressStatus] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [selectedImage, setSelectedImage] = useState<FormData | null>(null);
+  const [uploadedImages, setUploadedImages] = useState<ImageResponse[]>([]); // Chứa danh sách các ảnh đã upload
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const getSignature = async (
+  const fetchSignature = async (
     public_id: string,
     eager: string,
     timestamp: number
@@ -81,66 +76,17 @@ const HomePage: NextPage = () => {
     }
   };
 
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    if (!acceptedFiles.length) return;
-
+  const prepareFormData = async (file: File) => {
     const formData = new FormData();
-    formData.append("file", acceptedFiles[0]);
-    const public_id = "sample_image";
+    const public_id = `${file.name.split(".")[0]}_${Math.floor(
+      Date.now() / 1000
+    )}`;
     const eager = "w_400,h_300,c_pad|w_260,h_200,c_crop";
-    const timestamp = Math.floor(Date.now() / 1000); // Thời gian hiện tại tính bằng giây
-
-    // Gọi API để lấy signature từ server-side
-    try {
-      const signature = await getSignature(public_id, eager, timestamp);
-      formData.append("timestamp", timestamp.toString());
-      formData.append("api_key", "984541594185533");
-      formData.append("signature", signature);
-      formData.append("public_id", public_id);
-      formData.append("eager", eager);
-
-      setFormatImage(formData);
-    } catch (error) {
-      toast.error("Failed to generate signature");
-    }
-  }, []);
-
-  const onChangeFile = async (
-    e: ChangeEvent<HTMLInputElement>
-  ): Promise<void> => {
-    const files = e.target?.files;
-
-    if (!files || files.length === 0) return;
-
-    const file = files[0];
-
-    // Kiểm tra loại file có hợp lệ hay không (chỉ cho phép image)
-    if (!file?.type.match(imageTypeRegex)) {
-      toast.error("File type must be .png,.jpg,.jpeg,.gif", {
-        theme: "light",
-      });
-      return;
-    }
-
-    // Tạo formData và thêm file vào
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const public_id = "sample_image";
-    const eager = "w_400,h_300,c_pad|w_260,h_200,c_crop";
-    const timestamp = Math.floor(Date.now() / 1000); // Thời gian hiện tại tính bằng giây
+    const timestamp = Math.floor(Date.now() / 1000);
 
     try {
-      // Gọi API để lấy signature từ server-side
-      const response = await axios.post("/api/generate-signature", {
-        public_id,
-        eager,
-        timestamp,
-      });
-
-      const signature = response.data.signature;
-
-      // Thêm các tham số khác vào formData
+      const signature = await fetchSignature(public_id, eager, timestamp);
+      formData.append("file", file);
       formData.append("timestamp", timestamp.toString());
       formData.append(
         "api_key",
@@ -150,120 +96,121 @@ const HomePage: NextPage = () => {
       formData.append("public_id", public_id);
       formData.append("eager", eager);
 
-      // Cập nhật state với formData để tiếp tục upload
-      setFormatImage(formData);
+      return formData;
     } catch (error) {
-      // Hiển thị lỗi nếu không thể lấy signature
       toast.error("Failed to generate signature");
+      throw error;
     }
   };
 
-  const { getRootProps, getInputProps, fileRejections, isDragActive } =
-    useDropzone({ ...DROPZONE_OPTIONS, onDrop });
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    if (!acceptedFiles.length) return;
+
+    try {
+      const formData = await prepareFormData(acceptedFiles[0]);
+      setSelectedImage(formData);
+    } catch (error) {
+      toast.error("Error preparing file for upload");
+    }
+  }, []);
+
+  const onFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target?.files;
+
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    if (!file?.type.match(imageTypeRegex)) {
+      toast.error("File type must be .png,.jpg,.jpeg,.gif", {
+        theme: "light",
+      });
+      return;
+    }
+
+    try {
+      const formData = await prepareFormData(file);
+      setSelectedImage(formData);
+    } catch (error) {
+      toast.error("Error preparing file for upload");
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    ...DROPZONE_OPTIONS,
+    onDrop,
+  });
 
   useEffect(() => {
     (async () => {
-      if (!formatImage) return;
+      if (!selectedImage) return;
 
       try {
-        setIsFetching(true);
-        for (const pair of formatImage.entries()) {
-          console.log(pair[0], pair[1]); // In ra từng cặp key-value trong FormData
-        }
+        setIsUploading(true);
         const data = await uploadFile({
-          formData: formatImage,
+          formData: selectedImage,
           onUploadProgress(progress: any) {
-            setProgressStatus(progress);
+            setUploadProgress(progress);
           },
         });
 
         if (data) {
-          setFormatImage(null);
-          setImage(data);
-          setIsFetching(false);
-          setIsSuccess(true);
+          setSelectedImage(null);
+          setUploadedImages((prevImages) => [...prevImages, data]); // Lưu hình ảnh đã upload vào danh sách
+          setIsUploading(false);
           toast.success("Successfully uploaded!");
         }
       } catch (err) {
         if (axios.isAxiosError<{ message: string }>(err)) {
           toast.error(err.response?.data.message);
-        }
-        if (err instanceof Error) {
+        } else if (err instanceof Error) {
           toast.error(err.message);
         }
-        setFormatImage(null);
-        setImage(null);
-        setIsFetching(false);
-        setIsSuccess(false);
+        setSelectedImage(null);
+        setIsUploading(false);
       }
     })();
-  }, [formatImage]);
+  }, [selectedImage]);
 
   return (
-    <>
-      <ToastContainer
-        position="bottom-center"
-        autoClose={5000}
-        limit={2}
-        hideProgressBar
-        newestOnTop={false}
-        closeOnClick
-        rtl={false}
-        pauseOnFocusLoss
-        draggable
-        pauseOnHover
-        theme="colored"
-      />
-      <div>
-        {!isFetching && (
-          <div
-            {...getRootProps({ className: "dropzone" })}
-            className="w-full sm:w-[402px] h-[469px] p-8 bg-slate-50 sm:bg-white rounded-xl shadow-none sm:shadow-lg sm:shadow-gray-200/80"
-          >
+    <div className="lg:max-w-screen-lg m-auto flex justify-center items-center h-[100vh]">
+      <div className="w-full m-auto sm:w-[402px] h-auto p-8 bg-slate-50 sm:bg-white rounded-xl shadow-none sm:shadow-lg sm:shadow-gray-200/80">
+        {!isUploading && (
+          <div {...getRootProps({ className: "dropzone" })} className="w-full">
             <div className="w-full h-full flex gap-6 flex-col justify-evenly items-center">
-              {isSuccess && (
-                <i className="fa-sharp fa-solid fa-circle-check text-4xl text-green-600"></i>
-              )}
-
               <h2 className="text-xl text-gray-600 text-center font-semibold">
-                {isSuccess ? "Uploaded Successfully!" : "Upload your image"}
+                Upload your image
               </h2>
 
-              {!isSuccess && (
-                <p className="text-xs sm:text-sm text-gray-500 text-center font-medium">
-                  File should be Jpeg, Png, Gif
-                </p>
-              )}
+              <Dropzone isActive={isDragActive} onInputProps={getInputProps} />
 
-              {image ? (
-                <PreviewImage imageUrl={image.secure_url} />
-              ) : (
-                <Dropzone
-                  isActive={isDragActive}
-                  onInputProps={getInputProps}
-                />
-              )}
-
-              {!isSuccess && (
-                <span className="text-xs text-gray-400 font-medium">Or</span>
-              )}
-
-              {!isSuccess && (
-                <ButtonFile
-                  onClick={() => inputRef.current?.click()}
-                  inputRef={inputRef}
-                  onChange={onChangeFile}
-                />
-              )}
-
-              {isSuccess && <InputLink value={image?.secure_url ?? ""} />}
+              <FileButton
+                onClick={() => fileInputRef.current?.click()}
+                inputRef={fileInputRef}
+                onChange={onFileChange}
+              />
             </div>
           </div>
         )}
 
-        {isFetching && <ProgressCard progressStatus={progressStatus} />}
+        {isUploading && <ProgressCard progressStatus={uploadProgress} />}
+
+        {uploadedImages.length > 0 && (
+          <div className="mt-8">
+            <h3 className="text-lg text-gray-600 font-semibold text-center">
+              Uploaded Images
+            </h3>
+            <div className="grid grid-cols-1 gap-4 mt-4">
+              {uploadedImages.map((image, index) => (
+                <div key={index}>
+                  <PreviewImage imageUrl={image.secure_url} />
+                  <InputLink value={image.secure_url} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 };
 
