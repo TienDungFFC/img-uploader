@@ -110,6 +110,7 @@ const HomePage: NextPage = () => {
       const formData = await prepareFormData(acceptedFiles[0]);
       setSelectedImage(formData);
     } catch (error) {
+      console.log("error: ", error);
       toast.error("Error preparing file for upload");
     }
   }, []);
@@ -131,6 +132,7 @@ const HomePage: NextPage = () => {
       const formData = await prepareFormData(file);
       setSelectedImage(formData);
     } catch (error) {
+      console.log("error: ", error);
       toast.error("Error preparing file for upload");
     }
   };
@@ -148,7 +150,7 @@ const HomePage: NextPage = () => {
         setIsUploading(true);
         const data = await uploadFile({
           formData: selectedImage,
-          onUploadProgress(progress: any) {
+          onUploadProgress(progress: number) {
             setUploadProgress(progress);
           },
         });
